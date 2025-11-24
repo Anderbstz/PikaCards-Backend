@@ -1,7 +1,12 @@
+import stripe
+from django.conf import settings
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from pikacards.models import Card
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 # ----------------------------------------
 # 0. Estado
@@ -260,3 +265,35 @@ def list_sets(request):
     )
     return Response(sorted(list(sets)))
 
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_checkout_session(request):
+    cart = request.data.get("cart", [])
+
+    if not cart:
+        return Response({"error": "Carrito vacío"}, status=400)
+
+    line_items = []
+
+    for item in cart:
+        line_items.append({
+            "price_data": {
+                "currency": "usd",
+                "product_data": {
+                    "name": item["name"],
+                    "images": [item["image"]],
+                },
+                "unit_amount": int(float(item["price"]) * 100),
+            },
+            "quantity": item["quantity"],
+        })
+
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        line_items=line_items,
+        mode="payment",
+        success_url="http://localhost:3000/success",
+        cancel_url="http://localhost:3000/cancel",
+    )
+
+    return Response({"url": session.url})

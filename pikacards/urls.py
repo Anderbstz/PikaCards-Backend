@@ -30,4 +30,7 @@ urlpatterns = [
 
     # 👇 ESTA SIEMPRE AL FINAL
     path("cards/<str:card_id>/", views.card_detail),
+    
+    path("cart/checkout/", views.create_checkout_session),
+
 ]
