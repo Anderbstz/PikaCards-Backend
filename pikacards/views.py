@@ -1,12 +1,26 @@
 import stripe
 from django.conf import settings
-from rest_framework.permissions import IsAuthenticated
+import json
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from pikacards.models import Card
+
+from django.contrib.auth.models import User
+
+from pikacards.models import Card, Order, OrderItem, CartItem
+from .serializers import OrderSerializer, CartItemSerializer
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
+
+# Precio pseudo-determinístico similar al frontend para datos consistentes
+def get_card_price(card: Card):
+    seed = (card.card_id or card.name or "pikacards")
+    hash_value = sum(ord(ch) * (i + 1) for i, ch in enumerate(seed))
+    pseudo = 5 + (hash_value % 100) / 5  # 5 a 25
+    return round(pseudo, 2)
 
 # ----------------------------------------
 # 0. Estado
@@ -314,7 +328,7 @@ def create_checkout_session(request):
             payment_method_types=["card"],
             line_items=line_items,
             mode="payment",
-            success_url="http://localhost:5173/success",
+            success_url="http://localhost:5173/history?success=1",
             cancel_url="http://localhost:5173/cancel",
         )
 
@@ -322,3 +336,152 @@ def create_checkout_session(request):
     except Exception as e:
         # Siempre devolver JSON para que el frontend no intente parsear HTML
         return Response({"error": f"Error al inicializar el pago: {str(e)}"}, status=500)
+    
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def purchase_history(request):
+    orders = Order.objects.filter(user=request.user).order_by("-created_at")
+    serializer = OrderSerializer(orders, many=True)
+    return Response(serializer.data)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_cart(request):
+    items = CartItem.objects.filter(user=request.user)
+    serializer = CartItemSerializer(items, many=True)
+    return Response(serializer.data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def add_to_cart(request):
+    card_id = request.data.get("card_id")
+
+    try:
+        card = Card.objects.get(card_id=card_id)
+    except Card.DoesNotExist:
+        return Response({"error": "Card not found"}, status=404)
+
+    item, created = CartItem.objects.get_or_create(
+        user=request.user,
+        card=card,
+    )
+
+    if not created:
+        item.quantity += 1
+        item.save()
+
+    return Response({"message": "Added to cart"})
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def remove_from_cart(request, item_id):
+    try:
+        item = CartItem.objects.get(id=item_id, user=request.user)
+        item.delete()
+        return Response({"message": "Item removed"})
+    except CartItem.DoesNotExist:
+        return Response({"error": "Item not found"}, status=404)
+    
+def clear_cart(user):
+    CartItem.objects.filter(user=user).delete()
+    
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_checkout_session(request):
+    cart_items = CartItem.objects.filter(user=request.user)
+
+    if not cart_items.exists():
+        return Response({"error": "Cart is empty"}, status=400)
+
+    line_items = []
+
+    for item in cart_items:
+        unit_price = get_card_price(item.card)
+        line_items.append({
+            "price_data": {
+                "currency": "pen",
+                "product_data": {
+                    "name": item.card.name,
+                },
+                "unit_amount": int(round(unit_price * 100)),
+            },
+            "quantity": item.quantity,
+        })
+
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        payment_method_types=["card"],
+        line_items=line_items,
+        success_url="http://localhost:5173/history?success=1",
+        cancel_url="http://localhost:5173/cancel",
+        customer_email=request.user.email,
+        client_reference_id=str(request.user.id),
+    )
+
+    return Response({"url": session.url})
+
+@csrf_exempt
+def stripe_webhook(request):
+    payload = request.body
+    sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+    endpoint_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", None)
+
+    try:
+        if endpoint_secret:
+            event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+        else:
+            event = json.loads(payload)
+    except Exception:
+        return HttpResponse(status=400)
+
+    if event.get("type") == "checkout.session.completed":
+        session = event["data"]["object"]
+
+        # Preferir client_reference_id (ID de usuario) y hacer fallback al email
+        user = None
+        user_id = session.get("client_reference_id")
+        if user_id:
+            try:
+                user = User.objects.get(id=int(user_id))
+            except (User.DoesNotExist, ValueError):
+                user = None
+
+        if user is None:
+            email = (session.get("customer_details") or {}).get("email") or session.get("customer_email")
+            if email:
+                try:
+                    user = User.objects.get(email=email)
+                except User.DoesNotExist:
+                    user = None
+
+        # Si no podemos vincular el usuario, regresamos 200 para evitar reintentos
+        if user is None:
+            return HttpResponse(status=200)
+
+        cart_items = CartItem.objects.filter(user=user)
+
+        order = Order.objects.create(
+            user=user,
+            total=0
+        )
+
+        total = 0
+
+        for item in cart_items:
+            unit_price = get_card_price(item.card)
+            OrderItem.objects.create(
+                order=order,
+                product_name=item.card.name,
+                product_id=item.card.id,
+                quantity=item.quantity,
+                price=unit_price
+            )
+            total += item.quantity * unit_price
+
+        order.total = total
+        order.save()
+
+        clear_cart(user)
+
+    return HttpResponse(status=200)

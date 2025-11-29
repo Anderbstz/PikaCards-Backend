@@ -1,6 +1,13 @@
 from django.urls import path
 from . import views
-
+from pikacards.views import purchase_history
+from .views import (
+    create_checkout_session,
+    stripe_webhook,
+    add_to_cart, get_cart, remove_from_cart,
+    purchase_history
+)
+from .views import add_to_cart, get_cart, remove_from_cart, create_checkout_session, purchase_history
 urlpatterns = [
     # Estado
     path("status/", views.status),
@@ -32,5 +39,15 @@ urlpatterns = [
     path("cards/<str:card_id>/", views.card_detail),
     
     path("cart/checkout/", views.create_checkout_session),
+    
+    path("api/history/", purchase_history, name="purchase-history"),
 
+    path("cart/", get_cart),
+    path("cart/add/", add_to_cart),
+    path("cart/remove/<int:item_id>/", remove_from_cart),
+
+    path("checkout/", create_checkout_session),
+    path("history/", purchase_history),
+
+    path("webhook/stripe/", stripe_webhook),
 ]
