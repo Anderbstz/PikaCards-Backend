@@ -421,6 +421,29 @@ def create_checkout_session(request):
 
     return Response({"url": session.url})
 
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def create_billing_portal_session(request):
+    """Crea una sesión del portal de facturación de Stripe para que el usuario
+    gestione sus métodos de pago. Se busca/crea el Customer por email.
+    """
+    try:
+        # Buscar cliente por email
+        customers = stripe.Customer.list(email=request.user.email, limit=1)
+        if customers.data:
+            customer_id = customers.data[0].id
+        else:
+            customer = stripe.Customer.create(email=request.user.email)
+            customer_id = customer.id
+
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url="http://localhost:5173/profile",
+        )
+        return Response({"url": portal_session.url})
+    except Exception as e:
+        return Response({"error": f"Error al abrir el portal de pagos: {str(e)}"}, status=500)
+
 @csrf_exempt
 def stripe_webhook(request):
     payload = request.body

@@ -65,3 +65,42 @@ def profile(request):
         "username": user.username,
         "email": user.email,
     })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    user = request.user
+    current_password = request.data.get('current_password')
+    new_password = request.data.get('new_password')
+
+    if not current_password or not new_password:
+        return Response({"error": "Se requieren contraseña actual y nueva"}, status=400)
+
+    user_auth = authenticate(username=user.username, password=current_password)
+    if user_auth is None:
+        return Response({"error": "La contraseña actual es incorrecta"}, status=400)
+
+    user.set_password(new_password)
+    user.save()
+
+    return Response({"message": "Contraseña actualizada correctamente"}, status=200)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def delete_account(request):
+    user = request.user
+    confirm = request.data.get('confirm')
+    password = request.data.get('password')
+
+    if confirm != 'DELETE':
+        return Response({"error": "Confirma escribiendo DELETE"}, status=400)
+
+    if not password:
+        return Response({"error": "Proporciona tu contraseña"}, status=400)
+
+    user_auth = authenticate(username=user.username, password=password)
+    if user_auth is None:
+        return Response({"error": "Contraseña inválida"}, status=400)
+
+    user.delete()
+    return Response({"message": "Cuenta eliminada"}, status=200)

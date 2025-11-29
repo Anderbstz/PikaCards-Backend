@@ -8,6 +8,7 @@ from .views import (
     purchase_history
 )
 from .views import add_to_cart, get_cart, remove_from_cart, create_checkout_session, purchase_history
+from .views import create_billing_portal_session
 urlpatterns = [
     # Estado
     path("status/", views.status),
@@ -50,4 +51,5 @@ urlpatterns = [
     path("history/", purchase_history),
 
     path("webhook/stripe/", stripe_webhook),
+    path("billing/portal/", create_billing_portal_session),
 ]
