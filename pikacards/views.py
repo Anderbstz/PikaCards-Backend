@@ -287,27 +287,38 @@ def create_checkout_session(request):
     if not cart:
         return Response({"error": "Carrito vacío"}, status=400)
 
-    line_items = []
+    # Validación temprana de configuración de Stripe para evitar errores HTML (500)
+    if not getattr(settings, "STRIPE_SECRET_KEY", None):
+        return Response({"error": "Stripe no está configurado en el servidor"}, status=500)
 
-    for item in cart:
-        line_items.append({
-            "price_data": {
-                "currency": "usd",
-                "product_data": {
-                    "name": item["name"],
-                    "images": [item["image"]],
+    try:
+        line_items = []
+
+        for item in cart:
+            # Construir product_data sin imágenes vacías
+            product_data = {"name": item["name"]}
+            image_url = item.get("image")
+            if image_url:
+                product_data["images"] = [image_url]
+
+            line_items.append({
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": product_data,
+                    "unit_amount": int(float(item["price"]) * 100),
                 },
-                "unit_amount": int(float(item["price"]) * 100),
-            },
-            "quantity": item["quantity"],
-        })
+                "quantity": item["quantity"],
+            })
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=line_items,
-        mode="payment",
-        success_url="http://localhost:3000/success",
-        cancel_url="http://localhost:3000/cancel",
-    )
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=line_items,
+            mode="payment",
+            success_url="http://localhost:3000/success",
+            cancel_url="http://localhost:3000/cancel",
+        )
 
-    return Response({"url": session.url})
+        return Response({"url": session.url})
+    except Exception as e:
+        # Siempre devolver JSON para que el frontend no intente parsear HTML
+        return Response({"error": f"Error al inicializar el pago: {str(e)}"}, status=500)
