@@ -25,10 +25,22 @@ def login(request):
     username = request.data.get("username")
     password = request.data.get("password")
 
+    if not username or not password:
+        return Response({"error": "Se requieren credenciales"}, status=400)
+
     user = authenticate(username=username, password=password)
 
     if user is not None:
-        return Response({"message": "Login correcto", "user": username})
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            "message": "Login correcto",
+            "user": {
+                "username": user.username,
+                "email": user.email,
+            },
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+        })
     else:
         return Response({"error": "Credenciales inválidas"}, status=400)
 

@@ -29,8 +29,10 @@ def get_cards(request):
     start = (page - 1) * page_size
     end = start + page_size
 
-    cards = Card.objects.all()[start:end]
-    total = Card.objects.count()
+    # Ordenamos por id descendente para priorizar cartas reales importadas
+    cards_qs = Card.objects.order_by("-id")
+    cards = cards_qs[start:end]
+    total = cards_qs.count()
 
     data = [
         {
@@ -39,6 +41,9 @@ def get_cards(request):
             "types": c.types.split(",") if c.types else [],
             "rarity": c.rarity,
             "image": c.image,
+            "artist": c.artist,
+            "set_id": c.set_id,
+            "hp": c.hp,
         }
         for c in cards
     ]
@@ -71,6 +76,9 @@ def search_cards(request):
             "types": c.types.split(",") if c.types else [],
             "rarity": c.rarity,
             "image": c.image,
+            "artist": c.artist,
+            "set_id": c.set_id,
+            "hp": c.hp,
         }
         for c in cards
     ]
@@ -114,6 +122,9 @@ def search_cards_advanced(request):
             "types": c.types.split(",") if c.types else [],
             "rarity": c.rarity,
             "image": c.image,
+            "artist": c.artist,
+            "set_id": c.set_id,
+            "hp": c.hp,
         }
         for c in qs
     ]
@@ -226,6 +237,9 @@ def filter_cards(request):
             "types": c.types.split(",") if c.types else [],
             "rarity": c.rarity,
             "image": c.image,
+            "artist": c.artist,
+            "set_id": c.set_id,
+            "hp": c.hp,
         }
         for c in qs
     ]
