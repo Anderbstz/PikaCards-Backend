@@ -9,6 +9,7 @@ from .views import (
 )
 from .views import add_to_cart, get_cart, remove_from_cart, create_checkout_session, purchase_history
 from .views import create_billing_portal_session
+from .views import ai_chat
 urlpatterns = [
     # Estado
     path("status/", views.status),
@@ -52,4 +53,6 @@ urlpatterns = [
 
     path("webhook/stripe/", stripe_webhook),
     path("billing/portal/", create_billing_portal_session),
+    path("ai-chat/", ai_chat, name="ai_chat"),
+
 ]

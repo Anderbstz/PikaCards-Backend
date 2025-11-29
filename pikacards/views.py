@@ -508,3 +508,60 @@ def stripe_webhook(request):
         clear_cart(user)
 
     return HttpResponse(status=200)
+
+# IA Chatbot con DeepSeek
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from openai import OpenAI
+import os
+
+from pikacards.models import Order
+
+# Inicializar cliente DeepSeek
+client = OpenAI(api_key=settings.DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ai_chat(request):
+    user_message = request.data.get("message", "")
+
+    if not user_message:
+        return Response({"error": "Mensaje vacío"}, status=400)
+
+    try:
+        # Obtener historial de compras
+        orders = Order.objects.filter(user=request.user)
+        purchased = [
+            item.product_name for order in orders for item in order.items.all()
+        ]
+
+        prompt = f"""
+        Eres SeaTgc, asistente oficial de la tienda PikaCards.
+        Eres amable, conciso y experto en cartas Pokémon TCG.
+
+        HISTORIAL DE COMPRAS DEL USUARIO:
+        {purchased}
+
+        MENSAJE DEL USUARIO:
+        {user_message}
+
+        Responde en español.
+        """
+
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "Eres SeaTgc, asistente de PikaCards."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        reply = response.choices[0].message.content
+        return Response({"reply": reply})
+
+    except Exception as e:
+        print("🔥 Error DeepSeek:", e)
+        return Response({"error": "Error interno procesando la solicitud"}, status=500)
